@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personal Budget Summary</title>
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #eef1f9;
+            padding: 30px 15px;
+            color: #26345c;
+        }
+
+        .container {
+            max-width: 950px;
+            margin: auto;
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+        }
+
+        h1, .cycle { text-align: center; }
+
+        .cycle { color: #666; margin-bottom: 25px; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            padding: 13px 10px;
+            border-bottom: 1px solid #ddd;
+            text-align: center;
+        }
+
+        th {
+            background: #344b8e;
+            color: white;
+        }
+
+        .within { color: #16845b; font-weight: bold; }
+        .exceeded { color: #c0392b; font-weight: bold; }
+
+        .back {
+            display: inline-block;
+            margin-top: 25px;
+            background: #344b8e;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            text-decoration: none;
+        }
+
+        @media (max-width: 650px) {
+            .container { overflow-x: auto; }
+            table { min-width: 650px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Personal Budget Summary</h1>
+
+        <p class="cycle">
+            Your monthly cycle:
+            {{ cycle_start.strftime("%d %b %Y") }}
+            to
+            {{ cycle_end.strftime("%d %b %Y") }}
+        </p>
+
+        {% if budgets %}
+        <table>
+            <tr>
+                <th>Category</th>
+                <th>Expected Budget</th>
+                <th>Actual Spending</th>
+                <th>Remaining</th>
+                <th>Status</th>
+            </tr>
+
+            {% for item in budgets %}
+            <tr>
+                <td>{{ item.category_name }}</td>
+                <td>₹{{ "%.2f"|format(item.budget_amount) }}</td>
+                <td>₹{{ "%.2f"|format(item.actual_expenses) }}</td>
+                <td>₹{{ "%.2f"|format(item.remaining) }}</td>
+                <td class="{{ 'exceeded' if item.status == 'Exceeded' else 'within' }}">
+                    {{ item.status }}
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% else %}
+        <p>No personal budgets have been set yet.</p>
+        {% endif %}
+
+        <a class="back" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
+    </div>
+</body>
+</html>

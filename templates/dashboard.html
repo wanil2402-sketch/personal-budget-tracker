@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Expense Tracker | Dashboard</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #f3f5fb;
+            margin: 0;
+            padding: 35px 18px;
+            color: #26345c;
+        }
+
+        .container {
+            max-width: 1050px;
+            margin: auto;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #344b8e, #536bb0);
+            color: white;
+            padding: 30px;
+            border-radius: 16px;
+            text-align: center;
+            box-shadow: 0 5px 18px rgba(52, 75, 142, 0.15);
+        }
+
+        .header h1 {
+            margin: 0 0 10px;
+            font-size: 28px;
+        }
+
+        .header p {
+            margin: 0;
+            color: #e3e9ff;
+        }
+
+        .section-title {
+            margin: 35px 0 15px;
+            font-size: 20px;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+            gap: 18px;
+        }
+
+        .card {
+            background: white;
+            padding: 24px;
+            border-radius: 13px;
+            box-shadow: 0 3px 14px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e8ebf4;
+        }
+
+        .card h3 {
+            color: #68728b;
+            font-size: 14px;
+            font-weight: normal;
+            margin: 0 0 13px;
+        }
+
+        .card h2 {
+            font-size: 25px;
+            margin: 0;
+            overflow-wrap: anywhere;
+        }
+
+        .actual {
+            border-top: 4px solid #344b8e;
+        }
+
+        .expected {
+            border-top: 4px solid #16a085;
+        }
+
+        .navigation {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+            gap: 13px;
+            margin-top: 20px;
+        }
+
+        .navigation a {
+            text-decoration: none;
+            text-align: center;
+            background: white;
+            color: #344b8e;
+            padding: 16px 12px;
+            border: 1px solid #dfe4f1;
+            border-radius: 10px;
+            font-weight: bold;
+            transition: 0.2s;
+        }
+
+        .navigation a:hover {
+            background: #344b8e;
+            color: white;
+            transform: translateY(-2px);
+        }
+
+        .alert {
+            background: #fff0e6;
+            color: #b54708;
+            padding: 15px;
+            margin: 20px auto;
+            border-radius: 8px;
+            max-width: 750px;
+        }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 20px 12px;
+            }
+
+            .header {
+                padding: 24px 15px;
+            }
+
+            .header h1 {
+                font-size: 23px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+
+        <div class="header">
+            <h1>Welcome, {{ full_name }}!</h1>
+            <p>Your Personal Financial Dashboard</p>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                <div class="alert">{{ message }}</div>
+            {% endfor %}
+        {% endwith %}
+
+        <h2 class="section-title">Actual Financial Overview</h2>
+
+        <div class="cards">
+            <div class="card actual">
+                <h3>Total Income</h3>
+                <h2>₹{{ "%.2f"|format(income) }}</h2>
+            </div>
+
+            <div class="card actual">
+                <h3>Total Expenses</h3>
+                <h2>₹{{ "%.2f"|format(expenses) }}</h2>
+            </div>
+
+            <div class="card actual">
+                <h3>Remaining Balance</h3>
+                <h2>₹{{ "%.2f"|format(balance) }}</h2>
+            </div>
+        </div>
+
+        <h2 class="section-title">Expected Monthly Plan</h2>
+
+        <div class="cards">
+            <div class="card expected">
+                <h3>Expected Monthly Income</h3>
+                <h2>₹{{ "%.2f"|format(expected_income) }}</h2>
+            </div>
+
+            <div class="card expected">
+                <h3>Expected Expense Budget</h3>
+                <h2>₹{{ "%.2f"|format(expected_expenses) }}</h2>
+            </div>
+
+            <div class="card expected">
+                <h3>Expected Savings</h3>
+                <h2>₹{{ "%.2f"|format(expected_income - expected_expenses) }}</h2>
+            </div>
+        </div>
+
+
+        <h2 class="section-title">Spending Analysis</h2>
+
+        <div class="cards">
+            <div class="card">
+                <h3>Expense Distribution</h3>
+                <canvas id="expensePieChart"></canvas>
+            </div>
+
+            <div class="card">
+                <h3>Category-wise Spending</h3>
+                <canvas id="expenseBarChart"></canvas>
+            </div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script>
+            const categoryLabels = [
+                {% for item in expense_categories %}
+                    {{ item.category_name | tojson }},
+                {% endfor %}
+            ];
+
+            const categoryAmounts = [
+                {% for item in expense_categories %}
+                    {{ item.total | float }},
+                {% endfor %}
+            ];
+
+            new Chart(document.getElementById('expensePieChart'), {
+                type: 'pie',
+                data: {
+                    labels: categoryLabels,
+                    datasets: [{
+                        data: categoryAmounts
+                    }]
+                },
+                options: {
+                    responsive: true
+                }
+            });
+
+            new Chart(document.getElementById('expenseBarChart'), {
+                type: 'bar',
+                data: {
+                    labels: categoryLabels,
+                    datasets: [{
+                        label: 'Actual Spending (₹)',
+                        data: categoryAmounts
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        </script>
+
+        <h2 class="section-title">Manage Your Finances</h2>
+
+        <div class="navigation">
+            <a href="{{ url_for('add_transaction') }}">＋ Add Transaction</a>
+            <a href="{{ url_for('transactions') }}">View Transactions</a>
+            <a href="{{ url_for('budget') }}">Set Monthly Budget</a>
+            <a href="{{ url_for('budget_summary') }}">View Budget Summary</a>
+            <a href="{{ url_for('monthly_report') }}">Monthly Financial Report</a>
+        </div>
+
+    </div>
+</body>
+</html>

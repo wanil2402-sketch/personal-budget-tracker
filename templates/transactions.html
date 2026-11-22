@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transaction History</title>
+
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6fb;
+            padding: 30px 15px;
+            color: #26345c;
+        }
+
+        .container {
+            max-width: 1150px;
+            margin: auto;
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+        }
+
+        h1 { text-align: center; }
+
+        .filters {
+            background: #f4f6fb;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 25px 0;
+        }
+
+        .filter-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+        }
+
+        input, select, button {
+            width: 100%;
+            padding: 11px;
+            border: 1px solid #ccc;
+            border-radius: 7px;
+            font-size: 14px;
+        }
+
+        button, .reset {
+            display: inline-block;
+            background: #344b8e;
+            color: white;
+            border: none;
+            cursor: pointer;
+            padding: 12px 18px;
+            border-radius: 7px;
+            text-decoration: none;
+            text-align: center;
+        }
+
+        .reset {
+            background: #68738e;
+            margin-top: 12px;
+        }
+
+        .table-wrapper { overflow-x: auto; }
+
+        table {
+            width: 100%;
+            min-width: 850px;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
+            text-align: center;
+        }
+
+        th {
+            background: #34495e;
+            color: white;
+        }
+
+        .edit, .delete {
+            display: inline-block;
+            padding: 8px 12px;
+            border: none;
+            border-radius: 6px;
+            color: white;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 13px;
+        }
+
+        .edit { background: #344b8e; }
+        .delete { background: #c0392b; }
+
+        .alert {
+            padding: 12px;
+            margin: 15px auto;
+            border-radius: 7px;
+            background: #e8f7ed;
+            color: #216e39;
+        }
+
+        .back {
+            display: inline-block;
+            margin-top: 25px;
+            color: #344b8e;
+        }
+
+        .actions form { display: inline; }
+
+        .count {
+            color: #68738e;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+<div class="container">
+
+    <h1>Transaction History</h1>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+            <div class="alert">{{ message }}</div>
+        {% endfor %}
+    {% endwith %}
+
+    <div class="filters">
+        <h3>Search and Filter Transactions</h3>
+
+        <form method="GET" action="{{ url_for('transactions') }}">
+            <div class="filter-grid">
+
+                <input type="text" name="search"
+                       placeholder="Search category, method or description"
+                       value="{{ search }}">
+
+                <select name="type">
+                    <option value="">All Types</option>
+                    <option value="Income"
+                        {% if selected_type == 'Income' %}selected{% endif %}>
+                        Income
+                    </option>
+                    <option value="Expense"
+                        {% if selected_type == 'Expense' %}selected{% endif %}>
+                        Expense
+                    </option>
+                </select>
+
+                <select name="category">
+                    <option value="">All Categories</option>
+                    {% for category in categories %}
+                    <option value="{{ category.category_id }}"
+                        {% if selected_category|string == category.category_id|string %}selected{% endif %}>
+                        {{ category.category_name }}
+                    </option>
+                    {% endfor %}
+                </select>
+
+                <input type="date" name="from_date"
+                       value="{{ from_date }}" title="From date">
+
+                <input type="date" name="to_date"
+                       value="{{ to_date }}" title="To date">
+
+                <button type="submit">Apply Filters</button>
+
+            </div>
+
+            <a class="reset" href="{{ url_for('transactions') }}">
+                Clear Filters
+            </a>
+        </form>
+    </div>
+
+    <p class="count">
+        Showing {{ transactions|length }} transaction(s)
+    </p>
+
+    <div class="table-wrapper">
+        <table>
+            <tr>
+                <th>Date</th>
+                <th>Category</th>
+                <th>Type</th>
+                <th>Amount</th>
+                <th>Payment Method</th>
+                <th>Description</th>
+                <th>Actions</th>
+            </tr>
+
+            {% for transaction in transactions %}
+            <tr>
+                <td>{{ transaction.transaction_date }}</td>
+                <td>{{ transaction.category_name }}</td>
+                <td>{{ transaction.category_type }}</td>
+                <td>₹{{ "%.2f"|format(transaction.amount) }}</td>
+                <td>{{ transaction.method_name }}</td>
+                <td>{{ transaction.description or "-" }}</td>
+
+                <td class="actions">
+                    <a class="edit"
+                       href="{{ url_for('edit_transaction', transaction_id=transaction.transaction_id) }}">
+                        Edit
+                    </a>
+
+                    <form method="POST"
+                          action="{{ url_for('delete_transaction', transaction_id=transaction.transaction_id) }}"
+                          onsubmit="return confirm('Are you sure you want to delete this transaction?');">
+                        <button class="delete" type="submit">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    {% if not transactions %}
+        <p>No transactions found for these filters.</p>
+    {% endif %}
+
+    <a class="back" href="{{ url_for('dashboard') }}">
+        Back to Dashboard
+    </a>
+
+</div>
+</body>
+</html>
