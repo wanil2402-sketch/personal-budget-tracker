@@ -61,7 +61,8 @@ def register():
         except IntegrityError:
             return "This email is already registered."
 
-        except Exception:
+        except Exception as e:
+            print("REGISTRATION ERROR:", repr(e), flush=True)
             if connection:
                 connection.rollback()
             return "Something went wrong. Please try again."
