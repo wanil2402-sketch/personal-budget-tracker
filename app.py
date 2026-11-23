@@ -5,13 +5,68 @@ from mysql.connector import IntegrityError
 from db import get_db_connection
 from dotenv import load_dotenv
 import os
+import secrets
+import smtplib
+from email.message import EmailMessage
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 import calendar
-from datetime import date
+from datetime import date, datetime, timedelta
 
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY")
+
+app.config["MAIL_SERVER"] = os.getenv("MAIL_SERVER", "smtp.gmail.com")
+app.config["MAIL_PORT"] = int(os.getenv("MAIL_PORT", "587"))
+app.config["MAIL_USERNAME"] = os.getenv("MAIL_USERNAME")
+app.config["MAIL_PASSWORD"] = os.getenv("MAIL_PASSWORD")
+
+
+def generate_otp():
+    return f"{secrets.randbelow(1000000):06d}"
+
+
+def send_otp_email(to_email, otp):
+    send_email(
+        to_email,
+        "Your Login Verification Code",
+        f"Your verification code is {otp}. It expires in 5 minutes. "
+        "Do not share this code with anyone."
+    )
+
+
+def generate_reset_token(email):
+    serializer = URLSafeTimedSerializer(app.secret_key)
+    return serializer.dumps(email, salt="password-reset")
+
+
+def verify_reset_token(token):
+    serializer = URLSafeTimedSerializer(app.secret_key)
+    try:
+        return serializer.loads(
+            token,
+            salt="password-reset",
+            max_age=900
+        )
+    except (BadSignature, SignatureExpired):
+        return None
+
+
+def send_email(to_email, subject, body):
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = app.config["MAIL_USERNAME"]
+    message["To"] = to_email
+    message.set_content(body)
+
+    with smtplib.SMTP(app.config["MAIL_SERVER"], app.config["MAIL_PORT"]) as server:
+        server.starttls()
+        server.login(
+            app.config["MAIL_USERNAME"],
+            app.config["MAIL_PASSWORD"]
+        )
+        server.send_message(message)
 
 
 @app.route("/")
@@ -76,11 +131,11 @@ def register():
     return render_template("register.html")
 
 
-@app.route("/login", methods=["GET", "POST"])
-def login():
+
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
     if request.method == "POST":
-        email = request.form["email"].strip()
-        password = request.form["password"]
+        email = request.form["email"].strip().lower()
 
         connection = None
         cursor = None
@@ -90,24 +145,226 @@ def login():
             cursor = connection.cursor(dictionary=True)
 
             cursor.execute(
-                """
+                "SELECT user_id, email FROM Users WHERE email = %s",
+                (email,)
+            )
+            user = cursor.fetchone()
+
+            if user:
+                token = generate_reset_token(user["email"])
+                reset_link = url_for(
+                    "reset_password",
+                    token=token,
+                    _external=True
+                )
+
+                send_email(
+                    user["email"],
+                    "Password Reset - Personal Budget Tracker",
+                    f"Click this link to reset your password. "
+                    f"This link expires in 15 minutes:\n\n{reset_link}"
+                )
+
+            flash("If an account exists with that email, a reset link has been sent.")
+
+        except Exception:
+            app.logger.exception("Password reset request failed")
+            flash("Unable to process your request right now. Please try again later.")
+
+        finally:
+            if cursor:
+                cursor.close()
+            if connection:
+                connection.close()
+
+        return redirect(url_for("login"))
+
+    return render_template("forgot_password.html")
+
+
+@app.route("/reset-password/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    email = verify_reset_token(token)
+
+    if not email:
+        flash("This password reset link is invalid or expired.")
+        return redirect(url_for("forgot_password"))
+
+    if request.method == "POST":
+        password = request.form["password"]
+        confirm_password = request.form["confirm_password"]
+
+        if len(password) < 8:
+            flash("Password must contain at least 8 characters.")
+            return render_template("reset_password.html")
+
+        if password != confirm_password:
+            flash("Passwords do not match.")
+            return render_template("reset_password.html")
+
+        connection = None
+        cursor = None
+
+        try:
+            connection = get_db_connection()
+            cursor = connection.cursor()
+
+            password_hash = generate_password_hash(
+                password, method="pbkdf2:sha256"
+            )
+
+            cursor.execute(
+                "UPDATE Users SET password_hash = %s WHERE email = %s",
+                (password_hash, email)
+            )
+            connection.commit()
+
+            if cursor.rowcount == 0:
+                flash("Unable to reset password. Please request a new link.")
+                return redirect(url_for("forgot_password"))
+
+            flash("Your password has been updated. Please log in.")
+            return redirect(url_for("login"))
+
+        except Exception:
+            if connection:
+                connection.rollback()
+            app.logger.exception("Password reset failed")
+            flash("Unable to update your password. Please try again.")
+
+        finally:
+            if cursor:
+                cursor.close()
+            if connection:
+                connection.close()
+
+    return render_template("reset_password.html")
+
+
+def send_login_alert(email, full_name):
+    try:
+        send_email(
+            email,
+            "New Login Alert - Personal Budget Tracker",
+            f"Hello {full_name},\\n\\n"
+            "A successful login to your Personal Budget Tracker account "
+            "was detected. If this was not you, please reset your password."
+        )
+    except Exception:
+        app.logger.exception("Login notification email could not be sent.")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        email = request.form["email"].strip()
+        password = request.form["password"]
+        ip_address = request.remote_addr or "unknown"
+
+        connection = None
+        cursor = None
+
+        try:
+            connection = get_db_connection()
+            cursor = connection.cursor(dictionary=True)
+
+            cursor.execute("""
+                SELECT locked_until
+                FROM Login_Attempts
+                WHERE email = %s AND ip_address = %s
+                AND locked_until > NOW()
+            """, (email, ip_address))
+
+            if cursor.fetchone():
+                return "Too many failed attempts. Please try again after 15 minutes."
+
+            cursor.execute("""
                 SELECT user_id, full_name, password_hash
                 FROM Users
                 WHERE email = %s
-                """,
-                (email,)
-            )
+            """, (email,))
 
             user = cursor.fetchone()
 
             if user and user["password_hash"] and check_password_hash(
                 user["password_hash"], password
             ):
+                cursor.execute(
+                    "DELETE FROM Login_Attempts WHERE email = %s AND ip_address = %s",
+                    (email, ip_address)
+                )
+
+                cursor.execute("""
+                    SELECT enabled
+                    FROM Two_Factor_Settings
+                    WHERE user_id = %s
+                """, (user["user_id"],))
+
+                two_factor = cursor.fetchone()
+                connection.commit()
+
+                if two_factor and two_factor["enabled"]:
+                    otp = generate_otp()
+                    otp_hash = generate_password_hash(otp, method="pbkdf2:sha256")
+
+                    cursor.execute("""
+                        INSERT INTO Login_OTPs
+                            (user_id, otp_hash, expires_at, attempts)
+                        VALUES (%s, %s, DATE_ADD(NOW(), INTERVAL 5 MINUTE), 0)
+                        ON DUPLICATE KEY UPDATE
+                            otp_hash = VALUES(otp_hash),
+                            expires_at = VALUES(expires_at),
+                            attempts = 0
+                    """, (user["user_id"], otp_hash))
+
+                    connection.commit()
+
+                    session.clear()
+                    session["pending_2fa_user_id"] = user["user_id"]
+                    session["pending_2fa_email"] = email
+                    session["pending_2fa_name"] = user["full_name"]
+
+                    try:
+                        send_otp_email(email, otp)
+                    except Exception:
+                        cursor.execute(
+                            "DELETE FROM Login_OTPs WHERE user_id = %s",
+                            (user["user_id"],)
+                        )
+                        connection.commit()
+                        session.clear()
+                        app.logger.exception("OTP email could not be sent.")
+                        flash("Unable to send verification code. Please try again.")
+                        return redirect(url_for("login"))
+
+                    return redirect(url_for("verify_otp"))
+
+                session.clear()
                 session["user_id"] = user["user_id"]
                 session["full_name"] = user["full_name"]
-
+                send_login_alert(email, user["full_name"])
                 return redirect(url_for("dashboard"))
 
+            cursor.execute("""
+                INSERT INTO Login_Attempts
+                    (email, ip_address, failed_attempts, locked_until)
+                VALUES (%s, %s, 1, NULL)
+                ON DUPLICATE KEY UPDATE
+                    failed_attempts = CASE
+                        WHEN locked_until IS NOT NULL AND locked_until <= NOW()
+                        THEN 1
+                        ELSE failed_attempts + 1
+                    END,
+                    locked_until = CASE
+                        WHEN locked_until IS NOT NULL AND locked_until <= NOW()
+                        THEN NULL
+                        WHEN failed_attempts >= 3
+                        THEN DATE_ADD(NOW(), INTERVAL 15 MINUTE)
+                        ELSE locked_until
+                    END
+            """, (email, ip_address))
+
+            connection.commit()
             return "Invalid email or password."
 
         finally:
@@ -119,8 +376,149 @@ def login():
     return render_template("login.html")
 
 
+@app.route("/verify-otp", methods=["GET", "POST"])
+def verify_otp():
+    if "pending_2fa_user_id" not in session:
+        return redirect(url_for("login"))
+
+    if request.method == "POST":
+        entered_otp = request.form.get("otp", "").strip()
+        user_id = session["pending_2fa_user_id"]
+
+        connection = None
+        cursor = None
+
+        try:
+            connection = get_db_connection()
+            cursor = connection.cursor(dictionary=True)
+
+            cursor.execute("""
+                SELECT otp_hash, attempts
+                FROM Login_OTPs
+                WHERE user_id = %s AND expires_at > NOW()
+            """, (user_id,))
+
+            otp_record = cursor.fetchone()
+
+            if not otp_record:
+                cursor.execute(
+                    "DELETE FROM Login_OTPs WHERE user_id = %s",
+                    (user_id,)
+                )
+                connection.commit()
+                session.clear()
+                flash("Verification code expired. Please log in again.")
+                return redirect(url_for("login"))
+
+            if not check_password_hash(otp_record["otp_hash"], entered_otp):
+                attempts = otp_record["attempts"] + 1
+
+                if attempts >= 3:
+                    cursor.execute(
+                        "DELETE FROM Login_OTPs WHERE user_id = %s",
+                        (user_id,)
+                    )
+                    connection.commit()
+                    session.clear()
+                    flash("Too many incorrect codes. Please log in again.")
+                    return redirect(url_for("login"))
+
+                cursor.execute("""
+                    UPDATE Login_OTPs
+                    SET attempts = %s
+                    WHERE user_id = %s
+                """, (attempts, user_id))
+                connection.commit()
+                flash("Incorrect verification code. Please try again.")
+                return redirect(url_for("verify_otp"))
+
+            cursor.execute(
+                "DELETE FROM Login_OTPs WHERE user_id = %s",
+                (user_id,)
+            )
+            connection.commit()
+
+            email = session["pending_2fa_email"]
+            full_name = session["pending_2fa_name"]
+
+            session.clear()
+            session["user_id"] = user_id
+            session["full_name"] = full_name
+
+            send_login_alert(email, full_name)
+            return redirect(url_for("dashboard"))
+
+        finally:
+            if cursor:
+                cursor.close()
+            if connection:
+                connection.close()
+
+    return render_template("verify_otp.html")
 
 
+
+@app.route("/security-settings")
+def security_settings():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    connection = get_db_connection()
+    cursor = connection.cursor(dictionary=True)
+
+    try:
+        cursor.execute(
+            "SELECT enabled FROM Two_Factor_Settings WHERE user_id = %s",
+            (session["user_id"],)
+        )
+        setting = cursor.fetchone()
+        enabled = bool(setting and setting["enabled"])
+
+        return render_template("security_settings.html", enabled=enabled)
+    finally:
+        cursor.close()
+        connection.close()
+
+
+@app.route("/toggle-2fa", methods=["POST"])
+def toggle_2fa():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    action = request.form.get("action")
+
+    if action not in ("enable", "disable"):
+        flash("Invalid security setting.")
+        return redirect(url_for("security_settings"))
+
+    enabled = action == "enable"
+    connection = get_db_connection()
+    cursor = connection.cursor()
+
+    try:
+        cursor.execute("""
+            INSERT INTO Two_Factor_Settings (user_id, enabled)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE enabled = VALUES(enabled)
+        """, (session["user_id"], enabled))
+
+        if not enabled:
+            cursor.execute(
+                "DELETE FROM Login_OTPs WHERE user_id = %s",
+                (session["user_id"],)
+            )
+
+        connection.commit()
+        flash("Two-factor authentication " + ("enabled." if enabled else "disabled."))
+    except Exception:
+        connection.rollback()
+        app.logger.exception("Unable to update two-factor settings.")
+        flash("Unable to update your security settings.")
+    finally:
+        cursor.close()
+        connection.close()
+
+    return redirect(url_for("security_settings"))
 
 
 @app.route("/financial-setup", methods=["GET", "POST"])
