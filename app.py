@@ -945,6 +945,12 @@ def monthly_report():
     )
 
 
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
 if __name__ == "__main__":
     app.run(debug=True, port=5001, use_reloader=False)
 
