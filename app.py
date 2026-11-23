@@ -5,9 +5,8 @@ from mysql.connector import IntegrityError
 from db import get_db_connection
 from dotenv import load_dotenv
 import os
+import resend
 import secrets
-import smtplib
-from email.message import EmailMessage
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 import calendar
 from datetime import date, datetime, timedelta
@@ -54,19 +53,20 @@ def verify_reset_token(token):
 
 
 def send_email(to_email, subject, body):
-    message = EmailMessage()
-    message["Subject"] = subject
-    message["From"] = app.config["MAIL_USERNAME"]
-    message["To"] = to_email
-    message.set_content(body)
+    api_key = os.getenv("RESEND_API_KEY")
+    if not api_key:
+        raise RuntimeError("RESEND_API_KEY is not configured.")
 
-    with smtplib.SMTP(app.config["MAIL_SERVER"], app.config["MAIL_PORT"], timeout=10) as server:
-        server.starttls()
-        server.login(
-            app.config["MAIL_USERNAME"],
-            app.config["MAIL_PASSWORD"]
-        )
-        server.send_message(message)
+    resend.api_key = api_key
+
+    result = resend.Emails.send({
+        "from": "Personal Budget Tracker <onboarding@resend.dev>",
+        "to": [to_email],
+        "subject": subject,
+        "text": body
+    })
+
+    return result
 
 
 @app.route("/")
