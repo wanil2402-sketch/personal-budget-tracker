@@ -304,38 +304,50 @@ def login():
                 connection.commit()
 
                 if two_factor and two_factor["enabled"]:
-                    otp = generate_otp()
-                    otp_hash = generate_password_hash(otp, method="pbkdf2:sha256")
-
                     cursor.execute("""
-                        INSERT INTO Login_OTPs
-                            (user_id, otp_hash, expires_at, attempts)
-                        VALUES (%s, %s, DATE_ADD(NOW(), INTERVAL 5 MINUTE), 0)
-                        ON DUPLICATE KEY UPDATE
-                            otp_hash = VALUES(otp_hash),
-                            expires_at = VALUES(expires_at),
-                            attempts = 0
-                    """, (user["user_id"], otp_hash))
+                        SELECT user_id
+                        FROM Login_OTPs
+                        WHERE user_id = %s
+                          AND expires_at > NOW()
+                          AND attempts < 3
+                    """, (user["user_id"],))
 
-                    connection.commit()
+                    existing_otp = cursor.fetchone()
+
+                    if not existing_otp:
+                        otp = generate_otp()
+                        otp_hash = generate_password_hash(
+                            otp, method="pbkdf2:sha256"
+                        )
+
+                        cursor.execute("""
+                            INSERT INTO Login_OTPs
+                                (user_id, otp_hash, expires_at, attempts)
+                            VALUES (%s, %s, DATE_ADD(NOW(), INTERVAL 5 MINUTE), 0)
+                            ON DUPLICATE KEY UPDATE
+                                otp_hash = VALUES(otp_hash),
+                                expires_at = VALUES(expires_at),
+                                attempts = 0
+                        """, (user["user_id"], otp_hash))
+                        connection.commit()
+
+                        try:
+                            send_otp_email(email, otp)
+                        except Exception:
+                            cursor.execute(
+                                "DELETE FROM Login_OTPs WHERE user_id = %s",
+                                (user["user_id"],)
+                            )
+                            connection.commit()
+                            session.clear()
+                            app.logger.exception("OTP email could not be sent.")
+                            flash("Unable to send verification code. Please try again.")
+                            return redirect(url_for("login"))
 
                     session.clear()
                     session["pending_2fa_user_id"] = user["user_id"]
                     session["pending_2fa_email"] = email
                     session["pending_2fa_name"] = user["full_name"]
-
-                    try:
-                        send_otp_email(email, otp)
-                    except Exception:
-                        cursor.execute(
-                            "DELETE FROM Login_OTPs WHERE user_id = %s",
-                            (user["user_id"],)
-                        )
-                        connection.commit()
-                        session.clear()
-                        app.logger.exception("OTP email could not be sent.")
-                        flash("Unable to send verification code. Please try again.")
-                        return redirect(url_for("login"))
 
                     return redirect(url_for("verify_otp"))
 
