@@ -60,7 +60,7 @@ def send_email(to_email, subject, body):
     message["To"] = to_email
     message.set_content(body)
 
-    with smtplib.SMTP(app.config["MAIL_SERVER"], app.config["MAIL_PORT"]) as server:
+    with smtplib.SMTP(app.config["MAIL_SERVER"], app.config["MAIL_PORT"], timeout=10) as server:
         server.starttls()
         server.login(
             app.config["MAIL_USERNAME"],
