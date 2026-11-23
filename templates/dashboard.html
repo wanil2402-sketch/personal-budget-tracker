@@ -226,14 +226,38 @@
                 }
             });
 
+            const budgetLabels = [
+                {% for item in budget_categories %}
+                    {{ item.category_name | tojson }},
+                {% endfor %}
+            ];
+
+            const budgetAmounts = [
+                {% for item in budget_categories %}
+                    {{ item.budget_amount | float }},
+                {% endfor %}
+            ];
+
+            const budgetActualAmounts = [
+                {% for item in budget_categories %}
+                    {{ item.actual | float }},
+                {% endfor %}
+            ];
+
             new Chart(document.getElementById('expenseBarChart'), {
                 type: 'bar',
                 data: {
-                    labels: categoryLabels,
-                    datasets: [{
-                        label: 'Actual Spending (₹)',
-                        data: categoryAmounts
-                    }]
+                    labels: budgetLabels,
+                    datasets: [
+                        {
+                            label: 'Budget (₹)',
+                            data: budgetAmounts
+                        },
+                        {
+                            label: 'Actual Spending (₹)',
+                            data: budgetActualAmounts
+                        }
+                    ]
                 },
                 options: {
                     responsive: true,

@@ -247,6 +247,33 @@ def dashboard():
         budget_row = cursor.fetchone()
         expected_expenses = float(budget_row["total_budget"])
 
+        cursor.execute(
+            "SELECT created_at FROM Users WHERE user_id = %s",
+            (session["user_id"],)
+        )
+        user_record = cursor.fetchone()
+        registration_date = user_record["created_at"].date()
+        today = date.today()
+
+        def dashboard_anniversary(year, month):
+            last_day = calendar.monthrange(year, month)[1]
+            return date(year, month, min(registration_date.day, last_day))
+
+        cycle_start = dashboard_anniversary(today.year, today.month)
+
+        if today < cycle_start:
+            if today.month == 1:
+                cycle_start = dashboard_anniversary(today.year - 1, 12)
+            else:
+                cycle_start = dashboard_anniversary(today.year, today.month - 1)
+
+        if cycle_start.month == 12:
+            next_cycle_start = dashboard_anniversary(cycle_start.year + 1, 1)
+        else:
+            next_cycle_start = dashboard_anniversary(
+                cycle_start.year, cycle_start.month + 1
+            )
+
         cursor.execute("""
             SELECT c.category_name,
                    COALESCE(SUM(t.amount), 0) AS total
@@ -258,9 +285,30 @@ def dashboard():
             GROUP BY c.category_id, c.category_name
             ORDER BY total DESC
         """, (session["user_id"],))
-
         expense_categories = cursor.fetchall()
+
+        cursor.execute("""
+            SELECT c.category_name,
+                   pb.budget_amount,
+                   COALESCE(SUM(t.amount), 0) AS actual
+            FROM Personal_Budgets pb
+            JOIN Categories c
+                ON pb.category_id = c.category_id
+            LEFT JOIN Transactions t
+                ON t.user_id = pb.user_id
+                AND t.category_id = pb.category_id
+                AND t.transaction_date >= %s
+                AND t.transaction_date < %s
+            WHERE pb.user_id = %s
+              AND c.category_type = 'Expense'
+            GROUP BY pb.budget_id, c.category_id,
+                     c.category_name, pb.budget_amount
+            ORDER BY c.category_name
+        """, (cycle_start, next_cycle_start, session["user_id"]))
+        budget_categories = cursor.fetchall()
+
         print("CHART DEBUG:", session["user_id"], expense_categories)
+        print("BUDGET CHART DEBUG:", budget_categories)
 
         return render_template(
             "dashboard.html",
@@ -270,7 +318,8 @@ def dashboard():
             balance=balance,
             expected_income=expected_income,
             expected_expenses=expected_expenses,
-            expense_categories=expense_categories
+            expense_categories=expense_categories,
+            budget_categories=budget_categories
         )
     finally:
         if cursor:
@@ -636,20 +685,19 @@ def budget():
 
     try:
         if request.method == "POST":
-            category_id = request.form["category_id"]
+            category_id = int(request.form["category_id"])
             amount = float(request.form["budget_amount"])
-            month = int(request.form["budget_month"])
-            year = int(request.form["budget_year"])
 
-            if amount <= 0 or month < 1 or month > 12 or year < 2020:
-                return "Invalid budget details. Please go back and try again."
+            if amount <= 0:
+                return "Please enter a valid budget amount."
 
             cursor.execute("""
-                INSERT INTO Budgets
-                (user_id, category_id, budget_month, budget_year, budget_amount)
-                VALUES (%s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE budget_amount = VALUES(budget_amount)
-            """, (session["user_id"], category_id, month, year, amount))
+                INSERT INTO Personal_Budgets
+                (user_id, category_id, budget_amount)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                budget_amount = VALUES(budget_amount)
+            """, (session["user_id"], category_id, amount))
 
             connection.commit()
             return redirect(url_for("dashboard"))
@@ -667,9 +715,6 @@ def budget():
     finally:
         cursor.close()
         connection.close()
-
-
-
 
 @app.route("/budget-summary")
 def budget_summary():

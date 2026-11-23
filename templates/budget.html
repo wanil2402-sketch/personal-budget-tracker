@@ -36,7 +36,6 @@
 <body>
     <div class="container">
         <h1>Set Monthly Budget</h1>
-
         <form action="/budget" method="POST">
             <select name="category_id" required>
                 <option value="">Select Expense Category</option>
@@ -50,14 +49,6 @@
             <input type="number" name="budget_amount"
                    placeholder="Budget Amount (₹)"
                    min="0.01" step="0.01" required>
-
-            <input type="number" name="budget_month"
-                   placeholder="Month (1-12)"
-                   min="1" max="12" required>
-
-            <input type="number" name="budget_year"
-                   placeholder="Year"
-                   min="2020" required>
 
             <br><br>
             <button type="submit">Save Budget</button>
