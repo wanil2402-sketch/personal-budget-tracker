@@ -1,8 +1,53 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Register - Expense Tracker</title>
     <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            margin: 0;
+        }
+        input {
+            font-size: 16px;
+            min-height: 48px;
+        }
+        button {
+            font-size: 17px;
+            min-height: 48px;
+        }
+        @media (max-width: 600px) {
+            body {
+                padding: 24px 16px;
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .container {
+                width: 100%;
+                max-width: 420px;
+                padding: 30px 20px;
+            }
+            h1 {
+                font-size: 27px;
+            }
+            input {
+                width: 100%;
+                padding: 14px;
+                margin: 10px 0;
+            }
+            button {
+                width: 100%;
+                min-height: 52px;
+            }
+            p {
+                font-size: 16px;
+                line-height: 1.5;
+            }
+        }
         body {
             font-family: Arial, sans-serif;
             background-color: #f4f6fb;
